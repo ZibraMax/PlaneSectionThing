@@ -1,4 +1,5 @@
 import numpy as np
+import pygmsh
 import triangle as tr
 from .Material import Material
 import matplotlib.pyplot as plt
@@ -95,16 +96,12 @@ class Circular(Section):
 
     def _generate_coords(self, O: list, r: float, sa: float = 0, a: float = np.pi*2, n: int = 10) -> list[float]:
         coords = []
-        h = a/n
-        for i in range(n+1):
+        h = a/(n)
+        for i in range(n):
             theta = sa+h*i
             x = r*np.cos(theta)
             y = r*np.sin(theta)
             coords += [[O[0]+x, O[1]+y]]
-        theta = a
-        x = r*np.cos(theta)
-        y = r*np.sin(theta)
-        coords += [[O[0]+x, O[1]+y]]
         return coords
 
 
@@ -114,11 +111,48 @@ class Composite:
         self.fibers: list[Fiber] = []
         self.cover = None
         self.min_area = None
+        self.base = sections[0]
 
     def set_cover(self, cover=0.05):
         self.cover = cover
 
-    def mesh(self) -> None:
+    def mesh(self, verbose=False):
+        self.fibers: list[Fiber] = []
+
+        with pygmsh.geo.Geometry() as geom:
+            holes = []
+            for i, sec in enumerate(self.sections[1:]):
+                coords = sec.coords
+                poly = geom.add_polygon(coords.tolist(),
+                                        make_surface=sec.to_mesh)
+                holes.append(poly.curve_loop)
+                if sec.to_mesh:
+                    geom.add_physical(poly.surface, f"{i+1}")
+                else:
+                    self.fibers.append(sec)
+
+            # mesh base with holes
+            i = 0
+            sec = self.sections[0]
+            coords = sec.coords
+            poly = geom.add_polygon(coords.tolist(),
+                                    holes=holes)
+            holes.append(poly.curve_loop)
+            geom.add_physical(poly.surface, f"{i}")
+
+            mesh = geom.generate_mesh(order=1, verbose=verbose)
+        vertices = mesh.points[:, :-1]
+        triangles = mesh.cells_dict["triangle"]
+        by_materials = mesh.cell_sets_dict
+        for mat in by_materials:
+            mat_triangles = by_materials[mat]["triangle"]
+            for idx in mat_triangles:
+                t = triangles[idx]
+                fiber = self.create_fiber(vertices, t, int(mat))
+                self.fibers.append(fiber)
+        return mesh
+
+    def mesh_traingle(self) -> None:
         self.fibers: list[Fiber] = []
         coords = []
         seg = []
@@ -138,7 +172,6 @@ class Composite:
                 self.fibers.append(sec)
                 holes.append(sec.centroid)
         A = dict(vertices=coords, segments=seg, regions=regions, holes=holes)
-        # FIXME Esta mierda de libreria no funciona
         string_triangulation = "pA"
         if self.min_area:
             string_triangulation += f"a{self.min_area/3}"
