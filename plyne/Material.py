@@ -1,10 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+from scipy import interpolate
 
 
 class Material:
-    def __init__(self, stress: list, strain: list, name: str = "", props: dict = None, color: str = None) -> None:
+    def __init__(self, stress: list, strain: list, name: str = "", props: dict = None, color: str = None, flow=None) -> None:
         if not name:
             name = "Unnamed material"
         if not props:
@@ -19,9 +20,17 @@ class Material:
             b = np.random.randint(0, 255)/255
             color = [r, g, b]
         self.color: str = color
+        def fdef(x): return False
+        self.failure = flow or fdef
+
+        self.ss_curve = interpolate.interp1d(
+            self.strain, self.stress, fill_value=0.0, bounds_error=False)
 
     def show_ss_curve(self) -> matplotlib.lines.Line2D:
-        return plt.plot(self.strain, self.stress, label=self.name)[0]
+        return plt.gca().plot(self.strain, self.stress, label=self.name)[0]
+
+    def give_stress(self, eps):
+        return self.ss_curve(eps)
 
 
 class SimplifiedSteel(Material):
@@ -40,7 +49,8 @@ class WhitneyConcrete(Material):
         strain: list = [-0.003, -(1-b1)*0.003, -(1-b1)*0.003, 0]
         stress: list = [-fc*0.85, -fc*0.85, 0, 0]
         name: str = f"Whitney {fc}"
-        Material.__init__(self, stress, strain, name, **kargs)
+        def f(e): return e < -0.003
+        Material.__init__(self, stress, strain, name, flow=f, **kargs)
 
 
 class ConcreteMander(Material):
@@ -51,7 +61,8 @@ class ConcreteMander(Material):
         stress: list = [0, -22063.21, -25378.98, -27579.03, -
                         26782.13, -21739.9, -5461.19, 0, 3270.47, 0]
         name: str = f"Concrete {fc}"
-        Material.__init__(self, stress, strain, name, **kargs)
+        def f(e): return e < -0.3
+        Material.__init__(self, stress, strain, name, flow=f, **kargs)
 
 
 class RebarSteel(Material):

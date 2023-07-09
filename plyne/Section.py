@@ -1,8 +1,10 @@
+from matplotlib.patches import Patch
 import numpy as np
 import pygmsh
 import triangle as tr
 from .Material import Material
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 REBAR_DIAMETERS = {
     "3": 3/8*2.54/100,
     "4": 4/8*2.54/100,
@@ -25,7 +27,7 @@ for bar in REBAR_DIAMETERS:
 class Section:
     def __init__(self, coords: np.ndarray, material: Material, to_mesh: bool = True) -> None:
         self.coords: np.ndarray = coords
-        self.material: material = material
+        self.material: Material = material
         self.area: float = self._calculate_area()
         self.centroid: list = self._calculate_centroid()
         self.to_mesh = to_mesh
@@ -63,16 +65,67 @@ class Section:
 
 class Fiber(Section):
 
-    def __init__(self, coords: np.ndarray, material: Material) -> None:
+    def __init__(self, coords: np.ndarray, material: Material, simplified: bool = False) -> None:
         Section.__init__(self, coords, material, to_mesh=False)
+        A0 = 1/3
+        A1 = 0.059715871789770
+        A2 = 0.797426985353087
+        B1 = 0.470142064105115
+        B2 = 0.101286507323456
+        W0 = 0.1125
+        W1 = 0.066197076394253
+        W2 = 0.062969590272413
+        X = [A0, A1, B1, B1, B2, B2, A2]
+        Y = [A0, B1, A1, B1, A2, B2, B2]
+        W = [W0, W1, W1, W1, W2, W2, W2]
+        self.Z = np.array([X, Y]).T
+        self.W = np.array(W)
+        self.simplified = simplified
+        if not self.simplified:
+            self.x = self.T(self.Z.T)
+            self.jacs, self.dpz = self.J(self.Z.T)
+            self.detjac = np.linalg.det(self.jacs).flatten()
 
     def axial_load(self, strain: callable) -> float:
-        p: float = None
-        return p
+        flow = False
+        if self.simplified:
+            eps = strain(self.centroid[1])
+            flow = self.material.failure(eps) or flow
+            return flow, self.area*self.material.give_stress(eps)
+        p: float = 0.0
+        for i in range(len(self.x)):
+            w = self.W[i]
+            dj = self.detjac[i]
+            y = self.x[i][1]
+            eps = strain(y)
+            flow = self.material.failure(eps) or flow
+            sigma = self.material.give_stress(eps)
+            p += sigma*w*dj
+        return flow, p
 
     def T(self, z: np.ndarray) -> np.ndarray:
-        x: np.ndarray = None
-        return x
+        p = self.psis(z)
+        return p@self.coords
+
+    def J(self, z: np.ndarray) -> np.ndarray:
+        dpsis = self.dpsis(z).T
+        return dpsis @ self.coords, dpsis
+
+    def psis(self, z: np.ndarray) -> np.ndarray:
+
+        return np.array([
+            1.0-z[0]-z[1],
+            z[0],
+            z[1]]).T
+
+    def dpsis(self, z: np.ndarray) -> np.ndarray:
+
+        kernell = (z[0]-z[0])
+        return np.array([
+            [-1.0*(1+kernell), -1.0*(1+kernell)],
+            [1.0*(1+kernell), 0.0*(1+kernell)],
+            [0.0*(1+kernell), 1.0*(1+kernell)]
+        ])
 
     def show(self, ax=None) -> None:
         if not ax:
@@ -112,9 +165,18 @@ class Composite:
         self.cover = None
         self.min_area = None
         self.base = sections[0]
+        self.h = 0.0
+        self.update_materials()
 
     def set_cover(self, cover=0.05):
         self.cover = cover
+
+    def update_materials(self):
+        self.materials: list[Material] = []
+        for sec in self.sections:
+            self.h = max(max(sec.coords[:, 1]), self.h)
+            if not sec.material in self.materials:
+                self.materials.append(sec.material)
 
     def mesh(self, verbose=False):
         self.fibers: list[Fiber] = []
@@ -173,8 +235,8 @@ class Composite:
                 holes.append(sec.centroid)
         A = dict(vertices=coords, segments=seg, regions=regions, holes=holes)
         string_triangulation = "pqA"
-        # if self.min_area:
-        #     string_triangulation += f"a{self.min_area/3}"
+        if self.min_area:
+            string_triangulation += f"a{self.min_area/2:.10f}"
         B = tr.triangulate(A, string_triangulation)
         vertices = B["vertices"]
         materials = B["triangle_attributes"]
@@ -189,13 +251,105 @@ class Composite:
         return Fiber(coords, material)
 
     def moment_curvature(self, plot: bool = True) -> tuple[list[float]]:
-        phi: list[float] = []
-        M: list[float] = []
-        return phi, M
+        PHI: list[float] = [0]
+        EPSTOP: list[float] = [0]
+        EPSBOTTOM: list[float] = [0]
+        dphi = 0.0002
+        M: list[float] = [0]
+        h = self.h
+        c = 0.5*h
+        C: list[float] = []
+        phi = dphi
+        n = 500
+        dc = 0.001*h
+        for i in tqdm(range(n)):
+            cp1 = c+dc
+            flow = False
+            flag = True
+            for j in range(100):
+
+                flowax, P = self.axial_force(c, phi)
+                _, Pcp1 = self.axial_force(cp1, phi)
+
+                dpdc = (Pcp1-P)/(cp1-c)
+                cp1 = c
+                delta = P/dpdc
+                c = c - delta
+
+                if abs(delta) < 0.0001:
+                    flag = False
+                    break
+            if flag:
+                print("No converge C")
+
+            def strain(y): return (self.h-c-y)*phi
+            flowmm, moment = self.moment(c, phi)
+            PHI.append(phi)
+            M.append(moment)
+            if len(C) == 0:
+                C.append(c)
+            C.append(c)
+            EPSTOP.append(strain(self.h))
+            EPSBOTTOM.append(strain(0))
+            flow = flow or flowax or flowmm
+            phi += dphi
+            if flow:
+                break
+        if plot:
+            fig = plt.figure()
+            ax = fig.add_subplot(2, 2, 1)
+            ax.plot(PHI, M)
+            ax.grid()
+            ax.set_xlabel("phi")
+            ax.set_ylabel("M")
+
+            ax = fig.add_subplot(2, 2, 2)
+            ax.plot(PHI, C)
+            ax.grid()
+            ax.set_xlabel("phi")
+            ax.set_ylabel("C")
+
+            ax = fig.add_subplot(2, 2, 3)
+            ax.plot(PHI, EPSTOP)
+            ax.grid()
+            ax.set_xlabel("phi")
+            ax.set_ylabel("eps_top")
+
+            ax = fig.add_subplot(2, 2, 4)
+            ax.plot(PHI, EPSBOTTOM)
+            ax.grid()
+            ax.set_xlabel("phi")
+            ax.set_ylabel("eps_bottom")
+
+            plt.tight_layout()
+            plt.show()
+        return PHI, M
+
+    def axial_force(self, c, phi):
+        P = 0.0
+        flow = False
+        def strain(y): return (self.h-c-y)*phi
+        for fiber in self.fibers:
+            dflow, p = fiber.axial_load(strain)
+            flow = dflow or flow
+            P += p
+        return flow, P
+
+    def moment(self, c, phi):
+        M = 0.0
+        flow = False
+        def strain(y): return (self.h-c-y)*phi
+        for fiber in self.fibers:
+            yc = fiber.centroid[1]
+            dflow, p = fiber.axial_load(strain)
+            flow = dflow or flow
+            M += p*(self.h-c-yc)
+        return flow, M
 
     def interaction_diagram(self, plot: bool = True) -> tuple[list[float]]:
         M: list[float] = []
         P: list[float] = []
+        # TODO implement
         return M, P
 
     def show(self, mode: str = "sections") -> None:
@@ -208,6 +362,12 @@ class Composite:
             for fiber in self.fibers:
                 fiber.show(ax)
         ax.set_aspect("equal")
+        legend_elements = []
+        for mat in self.materials:
+            legend_elements.append(Patch(facecolor=mat.color, edgecolor='k',
+                                         label=mat.name))
+        ax.legend(handles=legend_elements, bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower left",
+                  mode="expand", borderaxespad=0)
 
     def add_rebar(self, desc: str, h: float, material: Material, direction: str = "horizontal", x: float = None, y: float = None, n: int = 7):
         designation = desc.split("#")[-1]
@@ -225,7 +385,7 @@ class Composite:
 
         for _ in range(n_bars):
             _bar = Circular(bar_diameter/2, material, x, y, n)
-            bar = Fiber(_bar.coords, material)
+            bar = Fiber(_bar.coords, material, simplified=True)
             if direction.lower() == "horizontal":
                 x += dh
             elif direction.lower() == "vertical":
@@ -234,3 +394,4 @@ class Composite:
                 raise Exception(
                     "Only horizontal and vertical directions are allowed")
             self.sections.append(bar)
+        self.update_materials()
