@@ -205,7 +205,6 @@ class Composite:
             coords = sec.coords
             poly = geom.add_polygon(coords.tolist(),
                                     holes=holes)
-            holes.append(poly.curve_loop)
             geom.add_physical(poly.surface, f"{i}")
 
             mesh = geom.generate_mesh(order=1, verbose=verbose)
@@ -220,7 +219,7 @@ class Composite:
                 self.fibers.append(fiber)
         return mesh
 
-    def mesh_traingle(self) -> None:
+    def mesh_traingle(self, area=None) -> None:
         self.fibers: list[Fiber] = []
         coords = []
         seg = []
@@ -241,8 +240,8 @@ class Composite:
                 holes.append(sec.centroid)
         A = dict(vertices=coords, segments=seg, regions=regions, holes=holes)
         string_triangulation = "pqA"
-        if self.min_area:
-            string_triangulation += f"a{self.min_area/2:.10f}"
+        if area:
+            string_triangulation += f"a{area}"
         B = tr.triangulate(A, string_triangulation)
         vertices = B["vertices"]
         materials = B["triangle_attributes"]
