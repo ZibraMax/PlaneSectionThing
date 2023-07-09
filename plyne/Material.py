@@ -50,7 +50,9 @@ class WhitneyConcrete(Material):
         stress: list = [-fc*0.85, -fc*0.85, 0, 0]
         name: str = f"Whitney {fc}"
         def f(e): return e < -0.003
-        Material.__init__(self, stress, strain, name, flow=f, **kargs)
+        props = {"ecu": -0.003}
+        Material.__init__(self, stress, strain, name,
+                          flow=f, props=props, **kargs)
 
 
 class ConcreteMander(Material):
@@ -61,8 +63,10 @@ class ConcreteMander(Material):
         stress: list = [0, -22063.21, -25378.98, -27579.03, -
                         26782.13, -21739.9, -5461.19, 0, 3270.47, 0]
         name: str = f"Concrete {fc}"
-        def f(e): return e < -0.3
-        Material.__init__(self, stress, strain, name, flow=f, **kargs)
+        def f(e): return e < -0.03
+        props = {"ecu": -0.003}
+        Material.__init__(self, stress, strain, name,
+                          flow=f, props=props, **kargs)
 
 
 class RebarSteel(Material):
@@ -74,4 +78,15 @@ class RebarSteel(Material):
         strain: list = [-0.108, -0.09, -0.045556, -0.018889, -0.01, -
                         0.002069, 0, 0.002069, 0.01, 0.018889, 0.045556, 0.09, 0.108]
         name: str = f"Rebar grade {grade}"
+        Material.__init__(self, stress, strain, name, **kargs)
+
+
+class AL6061T6(Material):
+
+    def __init__(self, **kargs) -> None:
+        stress: list = [0., -241316.5, -262000.8, -262000.8, -241316.5, -
+                        241316.5, 0., 241316.53, 241316.53, 262000.8, 262000.8, 241316.53, 0.]
+        strain: list = [-0.1347, -0.1, -0.08, -0.05, -0.02, -3.465E-03, 0., 3.465E-03, 0.02, 0.05, 0.08, 0.1, 0.1347
+                        ]
+        name: str = f"Aluminum 6061T6"
         Material.__init__(self, stress, strain, name, **kargs)

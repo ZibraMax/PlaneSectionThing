@@ -60,7 +60,8 @@ class Section:
         if not ax:
             ax = plt.gca()
         X, Y = self.coords.T.tolist()
-        return ax.fill(X+[X[0]], Y+[Y[0]], color=self.material.color, label=self.material.name)
+        ax.plot(X+[X[0]], Y+[Y[0]], color="k")
+        return ax.fill(X+[X[0]], Y+[Y[0]], color=self.material.color)
 
 
 class Fiber(Section):
@@ -165,18 +166,23 @@ class Composite:
         self.cover = None
         self.min_area = None
         self.base = sections[0]
-        self.h = 0.0
         self.update_materials()
 
     def set_cover(self, cover=0.05):
         self.cover = cover
 
     def update_materials(self):
+        self.h = 0.0
+        maxy = -np.inf
+        miny = np.inf
         self.materials: list[Material] = []
         for sec in self.sections:
-            self.h = max(max(sec.coords[:, 1]), self.h)
+            maxy = max(max(sec.coords[:, 1]), maxy)
+            miny = min(min(sec.coords[:, 1]), miny)
+
             if not sec.material in self.materials:
                 self.materials.append(sec.material)
+        self.h = maxy-miny
 
     def mesh(self, verbose=False):
         self.fibers: list[Fiber] = []
@@ -369,7 +375,7 @@ class Composite:
         ax.legend(handles=legend_elements, bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower left",
                   mode="expand", borderaxespad=0)
 
-    def add_rebar(self, desc: str, h: float, material: Material, direction: str = "horizontal", x: float = None, y: float = None, n: int = 7):
+    def add_rebar(self, desc: str, h: float, material: Material, direction: str = "horizontal", x: float = None, y: float = None, n: int = 20):
         designation = desc.split("#")[-1]
         if not self.min_area:
             self.min_area = REBAR_AREAS[designation]
