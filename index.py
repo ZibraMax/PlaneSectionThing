@@ -13,7 +13,7 @@ sections = []
 section = plyne.Rectangular(0.33, 0.63, concrete_mander)
 section = plyne.Section(
     section.coords-np.array([0.03/2, 0.03/2]), aluminum, True)
-# sections.append(section)
+sections.append(section)
 
 section = plyne.Rectangular(0.3, 0.6, concrete_mander)
 sections.append(section)
@@ -21,7 +21,7 @@ sections.append(section)
 
 composite = plyne.Composite(sections)
 composite.set_cover(0.05)
-composite.add_rebar("2#6", 0.3-2*0.05, steel_rebar, y=0.6-0.05, n=20)
+composite.add_rebar("5#6", 0.3-2*0.05, steel_rebar, y=0.6-0.05, n=20)
 composite.add_rebar("2#8", 0.3-2*0.05, steel_rebar, n=20)
 composite.show()
 plt.show()
@@ -42,4 +42,4 @@ composite.show("fibers")
 plt.show()
 
 # composite.interaction_diagram(plot=True, n=200)
-composite.moment_curvature(True)
+composite.moment_curvature(phimax=0.33, n=200)

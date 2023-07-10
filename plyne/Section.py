@@ -270,7 +270,7 @@ class Composite:
         plt.ion()
 
         if plot:
-            fig = plt.figure()
+            fig = plt.figure(figsize=[15, 13])
             ax = fig.add_subplot(2, 3, 1)
             linem, = ax.plot(PHI, M)
             ax.grid()
@@ -301,6 +301,14 @@ class Composite:
             ax.set_xlabel(r"$\varepsilon$")
             ax.set_ylabel(r"$h$")
 
+            ax3d = fig.add_subplot(2, 3, 6, projection="3d")
+            surf = ax3d.plot_trisurf([0, 1, 1], [0, 0, 1], [
+                                     1, 1, 1])
+            ax3d.view_init(30, 40)
+            ax3d.set_xlabel(r"$x$")
+            ax3d.set_ylabel(r"$y$")
+            ax3d.set_zlabel(r"$\sigma$")
+            ax3d.view_init(24, 170)
             plt.tight_layout()
 
         h = self.h
@@ -330,6 +338,9 @@ class Composite:
 
             def strain(y): return (self.h-c-y)*phi
             flowmm, moment = self.moment(c, phi)
+
+            _X, _Y, _Z = self.stress_gp(c, phi)
+
             PHI.append(phi)
             M.append(moment)
             C.append(c)
@@ -355,17 +366,24 @@ class Composite:
 
                 linestrain.set_xdata(STRAIN)
 
+                surf.remove()
+                surf = ax3d.plot_trisurf(_X, _Y, _Z)
+
                 for ax in fig.get_axes():
                     ax.relim()
                     ax.autoscale_view(True, True, True)
 
                 fig.canvas.draw()
                 fig.canvas.flush_events()
+                try:
+                    plt.savefig(f"./frames2/img_{i}.png", dpi=300)
+                except Exception as e:
+                    pass
 
             flow = flow or flowax or flowmm
             phi += dphi
             if flow:
-                break
+                print("material rompio")
         if plot:
             plt.ioff()
             fig.canvas.draw()
@@ -381,6 +399,30 @@ class Composite:
             flow = dflow or flow
             P += p
         return flow, P
+
+    def stress_gp(self, c, phi):
+        X = []
+        Y = []
+        Z = []
+        def strain(y): return (self.h-c-(y-self.ymin))*phi
+        for fiber in self.fibers:
+            if fiber.simplified:
+                yc = fiber.centroid[1]
+                stress = fiber.material.ss_curve(strain(yc))
+                XX = fiber.coords[:, 0].tolist()
+                YY = fiber.coords[:, 1].tolist()
+                X += XX
+                Y += YY
+                Z += [stress]*len(XX)
+            else:
+                for gp in fiber.x:
+                    x = gp[0]
+                    y = gp[1]
+                    stress = fiber.material.ss_curve(strain(y))
+                    X.append(x)
+                    Y.append(y)
+                    Z.append(stress)
+        return X, Y, Z
 
     def moment(self, c, phi):
         M = 0.0
