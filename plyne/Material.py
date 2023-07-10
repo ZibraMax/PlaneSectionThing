@@ -63,7 +63,7 @@ class ConcreteMander(Material):
         stress: list = [0, -22063.21, -25378.98, -27579.03, -
                         26782.13, -21739.9, -5461.19, 0, 3270.47, 0]
         name: str = f"Concrete {fc}"
-        def f(e): return e < -0.03
+        def f(e): return e < -0.11
         props = {"ecu": -0.003}
         Material.__init__(self, stress, strain, name,
                           flow=f, props=props, **kargs)

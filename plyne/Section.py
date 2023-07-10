@@ -257,17 +257,56 @@ class Composite:
         material = self.sections[material_index].material
         return Fiber(coords, material)
 
-    def moment_curvature(self, plot: bool = True) -> tuple[list[float]]:
+    def moment_curvature(self, plot: bool = True, phimax=0.2, n=500) -> tuple[list[float]]:
         PHI: list[float] = [0]
         EPSTOP: list[float] = [0]
         EPSBOTTOM: list[float] = [0]
-        dphi = 0.0002
         M: list[float] = [0]
+        C: list[float] = [self.h/2]
+
+        STRAIN = [0, -1, 1, 0, 0]
+        H = [self.h, self.h, 0, 0, self.h]
+
+        plt.ion()
+
+        if plot:
+            fig = plt.figure()
+            ax = fig.add_subplot(2, 3, 1)
+            linem, = ax.plot(PHI, M)
+            ax.grid()
+            ax.set_xlabel(r"$\phi$")
+            ax.set_ylabel(r"$M$")
+
+            ax = fig.add_subplot(2, 3, 2)
+            linec, = ax.plot(PHI, C)
+            ax.grid()
+            ax.set_xlabel(r"$\phi$")
+            ax.set_ylabel(r"$C$")
+
+            ax = fig.add_subplot(2, 3, 3)
+            lineepst, = ax.plot(PHI, EPSTOP)
+            ax.grid()
+            ax.set_xlabel(r"$\phi$")
+            ax.set_ylabel(r"$\varepsilon_{top}$")
+
+            ax = fig.add_subplot(2, 3, 4)
+            lineepsb, = ax.plot(PHI, EPSBOTTOM)
+            ax.grid()
+            ax.set_xlabel(r"$\phi$")
+            ax.set_ylabel(r"$\varepsilon_{bottom}$")
+
+            ax = fig.add_subplot(2, 3, 5)
+            linestrain, = ax.plot(STRAIN, H)
+            ax.grid()
+            ax.set_xlabel(r"$\varepsilon$")
+            ax.set_ylabel(r"$h$")
+
+            plt.tight_layout()
+
         h = self.h
         c = 0.5*h
-        C: list[float] = []
+        dphi = phimax/n
         phi = dphi
-        n = 500
         dc = 0.001*h
         for i in tqdm(range(n)):
             cp1 = c+dc
@@ -293,42 +332,43 @@ class Composite:
             flowmm, moment = self.moment(c, phi)
             PHI.append(phi)
             M.append(moment)
-            if len(C) == 0:
-                C.append(c)
             C.append(c)
-            EPSTOP.append(strain(self.h))
-            EPSBOTTOM.append(strain(0))
+            etop = strain(self.h)
+            ebottom = strain(0)
+            STRAIN = [0, -etop, -ebottom, 0, 0]
+
+            EPSTOP.append(etop)
+            EPSBOTTOM.append(ebottom)
+
+            if plot and i % 10:
+                linem.set_xdata(PHI)
+                linem.set_ydata(M)
+
+                linec.set_xdata(PHI)
+                linec.set_ydata(C)
+
+                lineepst.set_xdata(PHI)
+                lineepst.set_ydata(EPSTOP)
+
+                lineepsb.set_xdata(PHI)
+                lineepsb.set_ydata(EPSBOTTOM)
+
+                linestrain.set_xdata(STRAIN)
+
+                for ax in fig.get_axes():
+                    ax.relim()
+                    ax.autoscale_view(True, True, True)
+
+                fig.canvas.draw()
+                fig.canvas.flush_events()
+
             flow = flow or flowax or flowmm
             phi += dphi
             if flow:
                 break
         if plot:
-            fig = plt.figure()
-            ax = fig.add_subplot(2, 2, 1)
-            ax.plot(PHI, M)
-            ax.grid()
-            ax.set_xlabel("phi")
-            ax.set_ylabel("M")
-
-            ax = fig.add_subplot(2, 2, 2)
-            ax.plot(PHI, C)
-            ax.grid()
-            ax.set_xlabel("phi")
-            ax.set_ylabel("C")
-
-            ax = fig.add_subplot(2, 2, 3)
-            ax.plot(PHI, EPSTOP)
-            ax.grid()
-            ax.set_xlabel("phi")
-            ax.set_ylabel("eps_top")
-
-            ax = fig.add_subplot(2, 2, 4)
-            ax.plot(PHI, EPSBOTTOM)
-            ax.grid()
-            ax.set_xlabel("phi")
-            ax.set_ylabel("eps_bottom")
-
-            plt.tight_layout()
+            plt.ioff()
+            fig.canvas.draw()
             plt.show()
         return PHI, M
 
