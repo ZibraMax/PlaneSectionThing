@@ -23,7 +23,6 @@ composite = plyne.Composite(sections)
 composite.set_cover(0.05)
 composite.add_rebar("2#6", 0.3-2*0.05, steel_rebar, y=0.6-0.05, n=20)
 composite.add_rebar("2#8", 0.3-2*0.05, steel_rebar, n=20)
-print(composite.h)
 composite.show()
 plt.show()
 i = 1
@@ -38,9 +37,9 @@ for m in composite.materials:
 plt.tight_layout()
 plt.show()
 
-composite.mesh_traingle()
+composite.mesh_traingle(0.0005)
 composite.show("fibers")
 plt.show()
 
+composite.interaction_diagram(plot=True, n=200)
 composite.moment_curvature(True)
-plt.show()

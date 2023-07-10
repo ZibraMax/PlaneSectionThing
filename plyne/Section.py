@@ -348,13 +348,54 @@ class Composite:
             yc = fiber.centroid[1]
             dflow, p = fiber.axial_load(strain)
             flow = dflow or flow
-            M += p*(self.h-c-yc)
+            d = ((self.h-yc)-self.h/2)
+            M += p*d
         return flow, M
 
-    def interaction_diagram(self, plot: bool = True) -> tuple[list[float]]:
+    def interaction_diagram(self, ecu=None, etu=None, plot: bool = True, n=100) -> tuple[list[float]]:
         M: list[float] = []
         P: list[float] = []
-        # TODO implement
+
+        if ecu:
+            failure = "C"
+        elif etu:
+            failure = "T"
+        else:
+            failure = "AUTO"
+
+        ef = -0.003
+
+        C = np.linspace(0.0001, self.h*0.9999, n)
+        for c in tqdm(C):
+            phi = -ef/c
+            flowp, p = self.axial_force(c, phi)
+            flowm, m = self.moment(c, phi)
+            M.append(m)
+            P.append(-p)
+
+        if plot:
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 3, 1)
+            ax.plot(M, P)
+            ax.grid()
+            ax.set_xlabel("M")
+            ax.set_ylabel("P")
+
+            ax = fig.add_subplot(1, 3, 2)
+            ax.plot(C, P)
+            ax.grid()
+            ax.set_xlabel("C")
+            ax.set_ylabel("P")
+
+            ax = fig.add_subplot(1, 3, 3)
+            ax.plot(C, M)
+            ax.grid()
+            ax.set_xlabel("C")
+            ax.set_ylabel("M")
+
+            plt.tight_layout()
+            plt.show()
+
         return M, P
 
     def show(self, mode: str = "sections") -> None:
