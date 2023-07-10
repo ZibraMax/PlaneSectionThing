@@ -183,6 +183,7 @@ class Composite:
             if not sec.material in self.materials:
                 self.materials.append(sec.material)
         self.h = maxy-miny
+        self.ymin = miny
         self.cy = self.h/2+miny  # MUST BE COMPOSITE CENTROID!
 
     def mesh(self, verbose=False):
@@ -334,7 +335,7 @@ class Composite:
     def axial_force(self, c, phi):
         P = 0.0
         flow = False
-        def strain(y): return (self.h-c-y)*phi
+        def strain(y): return (self.h-c-(y-self.ymin))*phi
         for fiber in self.fibers:
             dflow, p = fiber.axial_load(strain)
             flow = dflow or flow
@@ -344,7 +345,7 @@ class Composite:
     def moment(self, c, phi):
         M = 0.0
         flow = False
-        def strain(y): return (self.h-c-y)*phi
+        def strain(y): return (self.h-c-(y-self.ymin))*phi
         for fiber in self.fibers:
             yc = fiber.centroid[1]
             dflow, p = fiber.axial_load(strain)
