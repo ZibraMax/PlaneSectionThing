@@ -183,6 +183,7 @@ class Composite:
             if not sec.material in self.materials:
                 self.materials.append(sec.material)
         self.h = maxy-miny
+        self.cy = self.h/2+miny  # MUST BE COMPOSITE CENTROID!
 
     def mesh(self, verbose=False):
         self.fibers: list[Fiber] = []
@@ -348,7 +349,7 @@ class Composite:
             yc = fiber.centroid[1]
             dflow, p = fiber.axial_load(strain)
             flow = dflow or flow
-            d = ((self.h-yc)-self.h/2)
+            d = -(yc - self.cy)
             M += p*d
         return flow, M
 
