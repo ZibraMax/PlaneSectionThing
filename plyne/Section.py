@@ -1,10 +1,37 @@
 from matplotlib.patches import Patch
 import numpy as np
-import pygmsh
 import triangle as tr
 from .Material import Material
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import math
+
+
+def line_intersection(line1, line2):
+    xdiff = (line1[0][0] - line1[1][0], line2[0][0] - line2[1][0])
+    ydiff = (line1[0][1] - line1[1][1], line2[0][1] - line2[1][1])
+
+    def det(a, b):
+        return a[0] * b[1] - a[1] * b[0]
+
+    div = det(xdiff, ydiff)
+    if div == 0:
+        return False
+
+    d = (det(*line1), det(*line2))
+    x = det(d, xdiff) / div
+    y = det(d, ydiff) / div
+    return [x, y]
+
+
+def isbetween(line, point):
+    line = np.array(line)
+    point = np.array(point)
+    d = np.sum(np.linalg.norm(line-point, axis=1))**2 - \
+        np.sum((line[-1]-line[0])**2)
+    return abs(d) < 1e-8
+
+
 REBAR_DIAMETERS = {
     "3": 3/8*2.54/100,
     "4": 4/8*2.54/100,
@@ -17,6 +44,8 @@ REBAR_DIAMETERS = {
     "11": 11/8*2.54/100,
     "14": 14/8*2.54/100,
     "18": 18/8*2.54/100,
+
+
 }
 REBAR_AREAS = {}
 for bar in REBAR_DIAMETERS:
@@ -186,49 +215,91 @@ class Composite:
         self.ymin = miny
         self.cy = self.h/2+miny  # MUST BE COMPOSITE CENTROID!
 
-    def mesh(self, verbose=False):
-        self.fibers: list[Fiber] = []
+    def plygon_split(self, sec: Section, c, xmin, xmax):
+        cline = [[xmin, c], [xmax, c]]
+        coords = np.array([*sec.coords]+[sec.coords[0]])
+        n = len(coords)
+        if max(coords[:, 1]) >= c and min(coords[:, 1]) <= c:
+            intersections = []
+            newcoords = []
+            for i in range(n-1):
+                line = [coords[i], coords[i+1]]
+                newcoords.append(coords[i])
+                intersection = line_intersection(line, cline)
+                if intersection:
+                    if isbetween(line, intersection):
+                        intersections.append(intersection)
+                        newcoords.append(intersection)
 
-        with pygmsh.geo.Geometry() as geom:
-            holes = []
-            for i, sec in enumerate(self.sections[1:]):
-                coords = sec.coords
-                poly = geom.add_polygon(coords.tolist(),
-                                        make_surface=sec.to_mesh)
-                holes.append(poly.curve_loop)
-                if sec.to_mesh:
-                    geom.add_physical(poly.surface, f"{i+1}")
-                else:
-                    self.fibers.append(sec)
+            center = sec.centroid
 
-            # mesh base with holes
-            i = 0
-            sec = self.sections[0]
-            coords = sec.coords
-            poly = geom.add_polygon(coords.tolist(),
-                                    holes=holes)
-            geom.add_physical(poly.surface, f"{i}")
+            def clockwise_around_center(point):
+                diff = point - center
+                l = np.linalg.norm(diff)
+                rcos = diff[0]/l
+                rsin = diff[1]/l
+                return np.arctan2(rsin, rcos)
 
-            mesh = geom.generate_mesh(order=1, verbose=verbose)
-        vertices = mesh.points[:, :-1]
-        triangles = mesh.cells_dict["triangle"]
-        by_materials = mesh.cell_sets_dict
-        for mat in by_materials:
-            mat_triangles = by_materials[mat]["triangle"]
-            for idx in mat_triangles:
-                t = triangles[idx]
-                fiber = self.create_fiber(vertices, t, int(mat))
-                self.fibers.append(fiber)
-        return mesh
+            sorted_points = sorted(np.array(newcoords),
+                                   key=clockwise_around_center)
+            newcoords = np.array(sorted_points).tolist()
+            intersections[0] = newcoords.index(intersections[0])
+            intersections[1] = newcoords.index(intersections[1])
+            intersections = sorted(intersections)
+            poly1 = []
+            poly2 = []
+            for i in range(intersections[1]):
+                poly1.append([i, i+1])
+            poly1.append([i+1, 0])
+            a = i+1
+            for i in range(intersections[1], len(newcoords)):
+                poly2.append([i, (i+1) % len(newcoords)])
+            poly2.append([0, a])
+            c1 = np.average(np.array(newcoords)[
+                            np.array(poly1)[:, 0]], axis=0)
+            c2 = np.average(np.array(newcoords)[
+                            np.array(poly2)[:, 0]], axis=0)
 
-    def mesh_traingle(self, area=None) -> None:
+            return c1, c2
+        else:
+            return False
+
+    def mesh(self, area=None, c=None) -> None:
+        if area:
+            self._area_mesh = area
+        if c:
+            c = self.h-c
         self.fibers: list[Fiber] = []
         coords = []
         seg = []
         th = 0
         regions = []
         holes = []
+        minx = np.inf
+        miny = np.inf
+
+        maxx = -np.inf
+        maxy = -np.inf
+
         for mi, sec in enumerate(self.sections):
+            maxx = max(maxx, max(sec.coords[:, 0]))
+            maxy = max(maxy, max(sec.coords[:, 1]))
+            minx = min(minx, min(sec.coords[:, 0]))
+            miny = min(miny, min(sec.coords[:, 1]))
+
+        for mi, sec in enumerate(self.sections):
+            f = True
+            if c:
+                polys = self.plygon_split(sec, c, minx-1, maxx+1)
+                if polys:
+                    f = False
+                    centroids = polys
+                    regions.append([*centroids[0], mi, 0])
+                    regions.append([*centroids[1], mi, 0])
+                    if not sec.to_mesh:
+                        holes.append(centroids[0])
+                        holes.append(centroids[1])
+                        self.fibers.append(sec)
             segmi = []
             regions.append([*sec.centroid, mi, 0])
             for i in range(len(sec.coords)-1):
@@ -236,15 +307,23 @@ class Composite:
             segmi.append([i+1+th, th])
             th += len(sec.coords)
             coords += sec.coords.tolist()
+
             seg += segmi
-            if not sec.to_mesh:
+            if not sec.to_mesh and f:
                 self.fibers.append(sec)
                 holes.append(sec.centroid)
+
+        if c:
+            coords.append([minx, c])
+            coords.append([maxx, c])
+            mmm = len(coords)
+            seg.append([mmm-2, mmm-1])
         A = dict(vertices=coords, segments=seg, regions=regions, holes=holes)
         string_triangulation = "pqA"
         if area:
             string_triangulation += f"a{area}"
         B = tr.triangulate(A, string_triangulation)
+        plt.show()
         vertices = B["vertices"]
         materials = B["triangle_attributes"]
         triangles = B["triangles"]
@@ -270,33 +349,33 @@ class Composite:
         plt.ion()
 
         if plot:
-            fig = plt.figure(figsize=[15, 13])
+            fig = plt.figure(figsize=[16, 15])
             ax = fig.add_subplot(2, 3, 1)
-            linem, = ax.plot(PHI, M)
+            linem, = ax.plot(PHI, M, color="k")
             ax.grid()
             ax.set_xlabel(r"$\phi$")
             ax.set_ylabel(r"$M$")
 
             ax = fig.add_subplot(2, 3, 2)
-            linec, = ax.plot(PHI, C)
+            linec, = ax.plot(PHI, C, color="k")
             ax.grid()
             ax.set_xlabel(r"$\phi$")
             ax.set_ylabel(r"$C$")
 
             ax = fig.add_subplot(2, 3, 3)
-            lineepst, = ax.plot(PHI, EPSTOP)
+            lineepst, = ax.plot(PHI, EPSTOP, color="k")
             ax.grid()
             ax.set_xlabel(r"$\phi$")
             ax.set_ylabel(r"$\varepsilon_{top}$")
 
             ax = fig.add_subplot(2, 3, 4)
-            lineepsb, = ax.plot(PHI, EPSBOTTOM)
+            lineepsb, = ax.plot(PHI, EPSBOTTOM, color="k")
             ax.grid()
             ax.set_xlabel(r"$\phi$")
             ax.set_ylabel(r"$\varepsilon_{bottom}$")
 
             ax = fig.add_subplot(2, 3, 5)
-            linestrain, = ax.plot(STRAIN, H)
+            linestrain, = ax.plot(STRAIN, H, color="k")
             ax.grid()
             ax.set_xlabel(r"$\varepsilon$")
             ax.set_ylabel(r"$h$")
@@ -321,7 +400,6 @@ class Composite:
             flow = False
             flag = True
             for j in range(100):
-
                 flowax, P = self.axial_force(c, phi)
                 _, Pcp1 = self.axial_force(cp1, phi)
 
@@ -340,7 +418,6 @@ class Composite:
             flowmm, moment = self.moment(c, phi)
 
             _X, _Y, _Z = self.stress_gp(c, phi)
-
             PHI.append(phi)
             M.append(moment)
             C.append(c)
@@ -351,7 +428,7 @@ class Composite:
             EPSTOP.append(etop)
             EPSBOTTOM.append(ebottom)
 
-            if plot and i % 10:
+            if plot:
                 linem.set_xdata(PHI)
                 linem.set_ydata(M)
 
@@ -367,7 +444,7 @@ class Composite:
                 linestrain.set_xdata(STRAIN)
 
                 surf.remove()
-                surf = ax3d.plot_trisurf(_X, _Y, _Z)
+                surf = ax3d.plot_trisurf(_X, _Y, _Z, color="blue")
 
                 for ax in fig.get_axes():
                     ax.relim()
@@ -376,7 +453,7 @@ class Composite:
                 fig.canvas.draw()
                 fig.canvas.flush_events()
                 try:
-                    plt.savefig(f"./frames2/img_{i}.png", dpi=300)
+                    plt.savefig(f"./frames/img_{i}.png", dpi=300)
                 except Exception as e:
                     pass
 
@@ -384,9 +461,17 @@ class Composite:
             phi += dphi
             if flow:
                 print("material rompio")
+
+            if math.isnan(moment) or math.isnan(c) or c <= 0 or c >= self.h:
+                print("No converge C al final")
+                break
         if plot:
             plt.ioff()
             fig.canvas.draw()
+            try:
+                plt.savefig(f"./frames/img_{i}.png", dpi=300)
+            except Exception as e:
+                pass
             plt.show()
         return PHI, M
 
