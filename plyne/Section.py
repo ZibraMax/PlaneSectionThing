@@ -544,23 +544,11 @@ class Composite:
 
         if plot:
             fig = plt.figure()
-            ax = fig.add_subplot(1, 3, 1)
+            ax = fig.add_subplot(1, 1, 1)
             ax.plot(M, P)
             ax.grid()
             ax.set_xlabel("M")
             ax.set_ylabel("P")
-
-            ax = fig.add_subplot(1, 3, 2)
-            ax.plot(C, P)
-            ax.grid()
-            ax.set_xlabel("C")
-            ax.set_ylabel("P")
-
-            ax = fig.add_subplot(1, 3, 3)
-            ax.plot(C, M)
-            ax.grid()
-            ax.set_xlabel("C")
-            ax.set_ylabel("M")
 
             plt.tight_layout()
             plt.show()
@@ -609,4 +597,15 @@ class Composite:
                 raise Exception(
                     "Only horizontal and vertical directions are allowed")
             self.sections.append(bar)
+        self.update_materials()
+
+    def add_rebar_point(self, desc: str, x, y, material: Material, n: int = 20):
+        designation = desc.split("#")[-1]
+        if not self.min_area:
+            self.min_area = REBAR_AREAS[designation]
+        self.min_area = min(self.min_area, REBAR_AREAS[designation])
+        bar_diameter = REBAR_DIAMETERS[designation]
+        _bar = Circular(bar_diameter/2, material, x, y, n)
+        bar = Fiber(_bar.coords, material, simplified=True)
+        self.sections.append(bar)
         self.update_materials()

@@ -2,44 +2,53 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plyne
 
-concrete_base = plyne.WhitneyConcrete(28000, color="gray")
-concrete_mander = plyne.ConcreteMander(28000, color="lightgray")
-steel_base = plyne.SimplifiedSteel(
+concrete_old = plyne.WhitneyConcrete(16000, color="gray")
+concrete_new = plyne.WhitneyConcrete(28000, color="lightgray")
+steel_new = plyne.SimplifiedSteel(
     200000000, 420000, 1.0*420000, 0.05, color="red")
-steel_rebar = plyne.RebarSteel(color="yellow")
-aluminum = plyne.AL6061T6(color="cyan")
+steel_old = plyne.SimplifiedSteel(
+    200000000, 235000, 1.0*235000, 0.05, color="red")
+
+
+b = 0.4
+h = 0.4
+
+nb = 0.6
+nh = 0.6
+
+x = (nb-b)/2
+y = (nh-h)/2
+
+
 sections = []
 
-section = plyne.Rectangular(0.33, 0.63, concrete_mander)
-section = plyne.Section(
-    section.coords-np.array([0.03/2, 0.03/2]), aluminum, True)
+section = plyne.Rectangular(nb, nh, concrete_new, x=-x, y=-y)
 sections.append(section)
 
-section = plyne.Rectangular(0.3, 0.6, concrete_mander)
+section = plyne.Rectangular(b, h, concrete_old)
 sections.append(section)
 
 
 composite = plyne.Composite(sections)
-composite.set_cover(0.05)
-composite.add_rebar("5#6", 0.3-2*0.05, steel_rebar, y=0.6-0.05, n=20)
-composite.add_rebar("2#8", 0.3-2*0.05, steel_rebar, n=20)
-# composite.show()
-# plt.show()
-i = 1
-n_mat = len(composite.materials)
-# fig = plt.figure()
-for m in composite.materials:
-    # ax = fig.add_subplot(1, n_mat, i)
-    # m.show_ss_curve()
-    # ax.legend()
-    # ax.grid()
-    i += 1
-# plt.tight_layout()
-# plt.show()
 
-composite.mesh(0.005, c=0.7*composite.h)
+cover = 0.05
+dbar = plyne.REBAR_DIAMETERS["6"]
+
+composite.set_cover(cover)
+
+composite.add_rebar("3#6", nb-2*cover+dbar, steel_new,
+                    x=-x+cover, y=h+y-cover+dbar/2, n=20)
+composite.add_rebar(
+    "3#6", nb-2*cover+dbar, steel_new, x=-x+cover, y=-y+cover-dbar/2, n=20)
+
+composite.add_rebar_point("#6", -x+cover, h/2, steel_new, 20)
+composite.add_rebar_point("#6", h+y-cover, h/2, steel_new, 20)
+composite.show()
+plt.show()
+
+composite.mesh(0.001)
 composite.show("fibers")
 plt.show()
 
 composite.interaction_diagram(plot=True, n=200)
-#composite.moment_curvature(phimax=0.33, n=200)
+# composite.moment_curvature(phimax=0.33, n=200)
